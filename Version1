@@ -1,0 +1,200 @@
+import React, { useState } from 'react';
+import { Image, Loader2, Download, Sparkles, Zap } from 'lucide-react';
+
+export default function App() {
+  const [prompt, setPrompt] = useState('');
+  const [images, setImages] = useState([null, null, null, null]); // 4 slots
+  const [loading, setLoading] = useState([false, false, false, false]);
+  const [error, setError] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Use the Imagen 3 model available in the environment
+  const apiKey = ""; 
+  const MODEL_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+
+  const generateSingleImage = async (index, currentPrompt) => {
+    try {
+      // Set loading for this specific slot
+      setLoading(prev => {
+        const newLoad = [...prev];
+        newLoad[index] = true;
+        return newLoad;
+      });
+
+      const response = await fetch(MODEL_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          instances: [{ prompt: currentPrompt }],
+          parameters: { sampleCount: 1 }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.predictions && result.predictions[0] && result.predictions[0].bytesBase64Encoded) {
+        const imageUrl = `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+        
+        setImages(prev => {
+          const newImages = [...prev];
+          newImages[index] = imageUrl;
+          return newImages;
+        });
+      }
+    } catch (err) {
+      console.error(`Generation failed for slot ${index}`, err);
+    } finally {
+      setLoading(prev => {
+        const newLoad = [...prev];
+        newLoad[index] = false;
+        return newLoad;
+      });
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    
+    setIsGenerating(true);
+    setError('');
+    setImages([null, null, null, null]); // Clear previous images
+    
+    // Fire 4 requests in parallel
+    // We use a small stagger to prevent hitting rate limits instantly, though Imagen is usually robust
+    const promises = [0, 1, 2, 3].map((index) => 
+      new Promise(resolve => setTimeout(() => resolve(generateSingleImage(index, prompt)), index * 150))
+    );
+
+    await Promise.all(promises);
+    setIsGenerating(false);
+  };
+
+  const downloadImage = (url, index) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nano-banana-gen-${index + 1}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  return (
+    <div className="min-h-screen bg-yellow-50 text-gray-900 font-sans p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        
+        {/* Header */}
+        <header className="mb-8 text-center">
+          <div className="inline-flex items-center justify-center bg-yellow-400 text-yellow-900 px-6 py-3 rounded-full shadow-lg mb-4 transform hover:scale-105 transition-transform duration-300 border-4 border-yellow-500">
+            <Zap className="w-8 h-8 mr-2 animate-pulse" />
+            <h1 className="text-3xl md:text-4xl font-black tracking-tight">NANO BANANA STUDIO</h1>
+          </div>
+          <p className="text-yellow-800 font-medium text-lg max-w-2xl mx-auto">
+            Parallel Image Generation Powered by Imagen 3
+          </p>
+        </header>
+
+        {/* Input Section */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-10 border border-yellow-200">
+          <div className="flex flex-col md:flex-row gap-4">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe what you want to see (e.g., 'A futuristic banana city in neon lights')..."
+              className="flex-1 px-6 py-4 text-lg rounded-xl border-2 border-yellow-200 focus:border-yellow-500 focus:ring-4 focus:ring-yellow-100 outline-none transition-all"
+              onKeyDown={(e) => e.key === 'Enter' && !isGenerating && handleGenerate()}
+            />
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating || !prompt.trim()}
+              className={`
+                px-8 py-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center min-w-[200px]
+                transition-all duration-200 transform active:scale-95
+                ${isGenerating || !prompt.trim() 
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:from-yellow-500 hover:to-orange-600 hover:shadow-xl'
+                }
+              `}
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-6 h-6 mr-2" />
+                  Generate 4x
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-8 rounded shadow-sm" role="alert">
+            <p>{error}</p>
+          </div>
+        )}
+
+        {/* Grid Display */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+          {[0, 1, 2, 3].map((index) => (
+            <div 
+              key={index} 
+              className={`
+                relative aspect-square rounded-2xl overflow-hidden bg-gray-100 shadow-md border-4 border-white group
+                ${loading[index] ? 'animate-pulse' : ''}
+              `}
+            >
+              {loading[index] ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-yellow-600">
+                  <Loader2 className="w-12 h-12 animate-spin mb-4" />
+                  <span className="font-mono text-sm font-bold">Generating Variant #{index + 1}...</span>
+                </div>
+              ) : images[index] ? (
+                <>
+                  <img 
+                    src={images[index]} 
+                    alt={`Generated art ${index + 1}`} 
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                  {/* Overlay Controls */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-300 flex items-end justify-end p-4 opacity-0 group-hover:opacity-100">
+                    <button 
+                      onClick={() => downloadImage(images[index], index)}
+                      className="bg-white text-gray-900 p-3 rounded-full shadow-lg hover:bg-yellow-400 hover:text-white transition-colors"
+                      title="Download Image"
+                    >
+                      <Download className="w-6 h-6" />
+                    </button>
+                  </div>
+                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white px-3 py-1 rounded-full text-xs font-bold">
+                    #{index + 1}
+                  </div>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300">
+                  <Image className="w-16 h-16 mb-2 opacity-50" />
+                  <span className="text-sm font-medium">Ready to create</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-12 text-center text-gray-500 text-sm pb-8">
+          <p>Powered by Google Imagen 3 • Inspired by Nano Banana Pro</p>
+        </div>
+
+      </div>
+    </div>
+  );
+}
